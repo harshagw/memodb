@@ -5,13 +5,11 @@ import (
 )
 
 type Client struct {
-	conn   *net.Conn
-	cqueue Commands
+	conn *net.Conn
 }
 
 func NewClient(conn *net.Conn) *Client {
 	return &Client{
-		conn:   conn,
-		cqueue: make(Commands, 0),
+		conn: conn,
 	}
 }
