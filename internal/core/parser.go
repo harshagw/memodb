@@ -3,70 +3,109 @@ package core
 import (
 	"bytes"
 	"errors"
+	"io"
 	"log"
+
+	"github.com/harshagw/memodb/internal/config"
 )
 
 type Parser struct {
+	c    io.ReadWriter
+	tbuf []byte
 	buf  *bytes.Buffer
-	Tbuf []byte
 }
 
-func NewParser() *Parser {
+func NewParser(c io.ReadWriter) *Parser {
 	var b []byte
 	var buf *bytes.Buffer = bytes.NewBuffer(b)
 	return &Parser{
+		tbuf: make([]byte, config.TEMP_BUFFER_SIZE),
+		c:    c,
 		buf:  buf,
-		Tbuf: make([]byte, 1024),
 	}
 }
 
-func (p *Parser) Write(b []byte) {
-	p.buf.Write(b)
-}
-
-func toArrayString(ai []interface{}) ([]string, error) {
-	as := make([]string, len(ai))
-	for i := range ai {
-		as[i] = ai[i].(string)
-	}
-	return as, nil
-}
-
-func (p *Parser) GetCommands() (*Commands, error) {
-
-	if !bytes.Contains(p.Tbuf, []byte{'\r', '\n'}) {
-		return nil, errors.New("no CRLF found")
-	}
-
-	values, err := decode(p.buf.Bytes())
+func (p *Parser) Write(b []byte) (int, error) {
+	n, err := p.buf.Write(b)
 	if err != nil {
-		log.Println("Error decoding values: ", err)
-		return nil, err
+		log.Println("Error writing to buffer: ", err)
+		return 0, err
 	}
 
-	p.buf.Reset()
+	if p.buf.Len() > config.MAX_BUFFER_SIZE {
+		log.Println("Max buffer size reached")
+		return 0, errors.New("max buffer size reached")
+	}
 
-	commands := make(Commands, 0)
+	return n, nil
+}
 
-	for _, val := range values {
+func (p *Parser) Read(b []byte) (int, error) {
+	return p.c.Read(b)
+}
 
-		v, ok := val.([]interface{})
-		if !ok {
-			v = []interface{}{val}
+func (p *Parser) decodeOne() (interface{}, error) {
+	for {
+		n, err := p.c.Read(p.tbuf)
+		if n <= 0 {
+			log.Println("No data read")
+			break
 		}
 
-		tokens, err := toArrayString(v)
-		if err != nil {
+		data := p.tbuf[:n]
+		log.Println("read the data : ", string(data))
+
+		_, err2 := p.Write(data)
+		if err2 != nil {
 			return nil, err
 		}
 
-		cmd := Command{
-			Cmd:  tokens[0],
-			Args: tokens[1:],
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, err
 		}
 
-		commands = append(commands, &cmd)
+		if bytes.Contains(p.tbuf, []byte{'\r', '\n'}) {
+			break
+		}
 	}
 
-	return &commands, nil
+	b, err := p.buf.ReadByte()
+	if err != nil {
+		return nil, err
+	}
+
+	switch b {
+	case '+':
+		return readSimpleString(p.buf)
+	case '-':
+		return readError(p.buf)
+	case ':':
+		return readInt(p.buf)
+	case '*':
+		return readArray(p.buf, p)
+	case '$':
+		return readBulkString(p.buf, p)
+	default:
+		return nil, ErrInvalidProtocol
+	}
+}
+
+func (p *Parser) GetMultiple() ([]interface{}, error) {
+	var values []interface{} = make([]interface{}, 0)
+
+	for {
+		value, err := p.decodeOne()
+		if err != nil {
+			return nil, err
+		}
+		values = append(values, value)
+		if p.buf.Len() == 0 {
+			break
+		}
+	}
+
+	return values, nil
 }

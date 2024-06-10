@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"io"
 	"strconv"
 )
 
@@ -44,10 +43,22 @@ func readError(buf *bytes.Buffer) (string, error) {
 	return readString(buf)
 }
 
-func readBulkString(buf *bytes.Buffer) (string, error) {
+func readBulkString(buf *bytes.Buffer, p *Parser) (string, error) {
 	length, err := readNum(buf)
 	if err != nil {
 		return "", err
+	}
+
+	var bytesRem int64 = length + 2
+	bytesRem = bytesRem - int64(buf.Len())
+	for bytesRem > 0 {
+		tbuf := make([]byte, bytesRem)
+		n, err := p.Read(tbuf)
+		if err != nil {
+			return "", nil
+		}
+		buf.Write(tbuf[:n])
+		bytesRem = bytesRem - int64(n)
 	}
 
 	str := make([]byte, length)
@@ -56,11 +67,8 @@ func readBulkString(buf *bytes.Buffer) (string, error) {
 		return "", err
 	}
 
-	crlf := make([]byte, 2)
-	_, err = buf.Read(crlf)
-	if err != nil {
-		return "", err
-	}
+	buf.ReadByte()
+	buf.ReadByte()
 
 	return string(str), nil
 }
@@ -95,7 +103,7 @@ func readInt(buf *bytes.Buffer) (int64, error) {
 
 }
 
-func readArray(buf *bytes.Buffer) ([]interface{}, error) {
+func readArray(buf *bytes.Buffer, p *Parser) ([]interface{}, error) {
 	len, err := readNum(buf)
 	if err != nil {
 		return nil, err
@@ -103,57 +111,12 @@ func readArray(buf *bytes.Buffer) ([]interface{}, error) {
 
 	var values = make([]interface{}, len)
 	for i := int64(0); i < len; i++ {
-		val, err := getValue(buf)
+		val, err := p.decodeOne()
 		if err != nil {
 			return nil, err
 		}
 
 		values[i] = val
-	}
-
-	return values, nil
-}
-
-func getValue(buf *bytes.Buffer) (interface{}, error) {
-	b, err := buf.ReadByte()
-	if err != nil {
-		return nil, err
-	}
-
-	switch b {
-	case '+':
-		return readSimpleString(buf)
-	case '-':
-		return readError(buf)
-	case ':':
-		return readInt(buf)
-	case '*':
-		return readArray(buf)
-	case '$':
-		return readBulkString(buf)
-	default:
-		return nil, ErrInvalidProtocol
-	}
-
-}
-
-func decode(data []byte) ([]interface{}, error) {
-	var values []interface{} = make([]interface{}, 0)
-
-	buf := bytes.NewBuffer(data)
-
-	for {
-		value, err := getValue(buf)
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			return nil, err
-		}
-		values = append(values, value)
-		if len(data) == 0 {
-			break
-		}
 	}
 
 	return values, nil
