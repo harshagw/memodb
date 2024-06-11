@@ -16,6 +16,11 @@ var (
 	RESP_NIL = []byte("$-1\r\n")
 )
 
+func ExecuteCommand(cmd *Command, c Client) {
+	cmds := Commands{cmd}
+	ExecuteCommands(cmds, c)
+}
+
 func ExecuteCommands(cmds Commands, c Client) {
 	var response []byte
 	buf := bytes.NewBuffer(response)
@@ -96,8 +101,10 @@ func execute(cmd *Command) ([]byte, error) {
 
 		obj := get(cmd.Args[0])
 		if obj == nil {
-			return nil, nil
+			return RESP_NIL, nil
 		}
+
+		log.Println("Value: ", obj.Value)
 
 		return encode(obj.Value, false), nil
 	case CmdDel:

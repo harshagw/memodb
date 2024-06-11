@@ -1,12 +1,15 @@
 package server
 
 import (
+	"bytes"
+	"errors"
 	"io"
 	"log"
 	"net"
 	"sync/atomic"
 	"syscall"
 
+	"github.com/harshagw/memodb/internal/config"
 	"github.com/harshagw/memodb/internal/core"
 	"github.com/harshagw/memodb/internal/iomultiplexer"
 )
@@ -82,7 +85,7 @@ func (s *Server) runAsync() error {
 					continue
 				}
 
-				cmds, err := handleAsyncConnection(comm)
+				cmd, err := handleAsyncConnection(comm)
 
 				if err != nil {
 					syscall.Close(event.Fd)
@@ -90,7 +93,7 @@ func (s *Server) runAsync() error {
 					continue
 				}
 
-				core.ExecuteCommands(cmds, comm)
+				core.ExecuteCommands(cmd, comm)
 			}
 		}
 	}
@@ -99,18 +102,60 @@ func (s *Server) runAsync() error {
 }
 
 func handleAsyncConnection(c io.ReadWriter) (core.Commands, error) {
-	var parser = core.NewParser(c)
+	var b []byte
+	var buf *bytes.Buffer = bytes.NewBuffer(b)
 
-	values, err := parser.GetMultiple()
-	if err != nil {
-		log.Println("Error getting values: ", err)
-		return nil, err
+	tbuf := make([]byte, config.TEMP_BUFFER_SIZE)
+
+	totalN := 0
+
+	for {
+		n, err := c.Read(tbuf)
+		if n <= 0 {
+			log.Println("No data read")
+			break
+		}
+
+		totalN += n
+
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, err
+		}
+
+		data := tbuf[:n]
+		log.Println("read the data : ", string(data))
+
+		_, err = buf.Write(data)
+		if err != nil {
+			log.Println("Error writing to buffer: ", err)
+			return nil, err
+		}
+
+		if buf.Len() > config.MAX_BUFFER_SIZE {
+			log.Println("Max buffer size reached")
+			return nil, errors.New("max buffer size reached")
+		}
 	}
 
-	cmds, err := core.DecodeCommands(values)
-	if err != nil {
-		log.Println("Error getting commands: ", err)
-		return nil, err
+	if totalN == 0 {
+		return nil, errors.New("no data read")
+	}
+
+	var reader = core.NewReader(buf)
+
+	cmds := make(core.Commands, 0)
+
+	for {
+		cmd, err := reader.ReadCommand()
+		if err != nil {
+			log.Printf("Error reading command: %v", err)
+			break
+		}
+
+		cmds = append(cmds, cmd)
 	}
 
 	return cmds, nil

@@ -26,7 +26,7 @@ func main() {
 
 	// log.Println("running command 1")
 
-	// _, err = conn.Write([]byte("*3\r\n$3\r\nSET\r\n$4\r\nname\r\n$5\r\nAlice\r\n"))
+	// _, err = conn.Write([]byte("*"))
 	// if err != nil {
 	// 	log.Fatal(err)
 	// }
@@ -45,11 +45,11 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// log.Println("running command 4")
-	// _, err = conn.Write([]byte("*2\r\n$3\r\nGET\r\n$4\r\nname\r\n"))
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
+	log.Println("running command 4")
+	_, err = conn.Write([]byte("*2\r\n$3\r\nGET\r\n$4\r\nname\r\n"))
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	ctx := context.Background()
 

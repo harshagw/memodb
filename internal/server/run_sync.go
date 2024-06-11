@@ -1,7 +1,6 @@
 package server
 
 import (
-	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -11,9 +10,6 @@ import (
 )
 
 func (s *Server) runSync() error {
-
-	return errors.New("not implemented yet")
-
 	listener, err := net.Listen("tcp", fmt.Sprintf("%s:%d", s.config.Host, s.config.Port))
 	if err != nil {
 		return err
@@ -63,4 +59,17 @@ func (s *Server) handleSyncConnection(conn net.Conn) {
 
 	currentTime := time.Now()
 	log.Printf("New connection from %s at %s", conn.RemoteAddr(), currentTime.Format("2006-01-02 15:04:05"))
+
+	reader := core.NewReader(conn)
+
+	for {
+		cmd, err := reader.ReadCommand()
+		if err != nil {
+			log.Printf("Error reading command: %v", err)
+			break
+		}
+
+		core.ExecuteCommand(cmd, client)
+	}
+
 }
